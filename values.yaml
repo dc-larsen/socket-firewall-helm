@@ -1,0 +1,108 @@
+# Socket Firewall Helm Chart Values
+
+# Image configuration
+image:
+  repository: socketdev/socket-registry-firewall
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Number of replicas
+replicaCount: 1
+
+# Socket API configuration
+socket:
+  # API token for Socket.dev (required)
+  # Set via --set socket.apiToken=xxx or create secret manually
+  apiToken: ""
+  # Name of existing secret containing SOCKET_SECURITY_API_TOKEN
+  existingSecret: ""
+  existingSecretKey: "SOCKET_SECURITY_API_TOKEN"
+
+# Registry configuration
+# Each registry can have custom domains for proxying
+registries:
+  npm:
+    enabled: true
+    domains:
+      - npm.firewall.local
+  pypi:
+    enabled: false
+    domains:
+      - pypi.firewall.local
+  maven:
+    enabled: false
+    domains:
+      - maven.firewall.local
+  rubygems:
+    enabled: false
+    domains:
+      - rubygems.firewall.local
+  cargo:
+    enabled: false
+    domains:
+      - cargo.firewall.local
+  openvsx:
+    enabled: false
+    domains:
+      - openvsx.firewall.local
+
+# Proxy tuning
+proxy:
+  bufferSize: "16k"
+  buffersCount: 8
+  buffersSize: "16k"
+  connectTimeout: 60
+  sendTimeout: 60
+  readTimeout: 60
+
+# Service configuration
+service:
+  type: ClusterIP
+  httpPort: 80
+  httpsPort: 443
+
+# TLS configuration
+tls:
+  # Generate self-signed certificates (for testing)
+  generateSelfSigned: true
+  # Use existing secret with tls.crt and tls.key
+  existingSecret: ""
+  # Certificate data (base64 encoded, only used if generateSelfSigned is false and existingSecret is empty)
+  certificate: ""
+  privateKey: ""
+
+# Resource limits
+resources:
+  limits:
+    cpu: "1"
+    memory: 768Mi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+# Health check configuration
+healthCheck:
+  enabled: true
+  path: /health
+  initialDelaySeconds: 10
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 3
+
+# Pod annotations
+podAnnotations: {}
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Service account
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}

@@ -1,0 +1,21 @@
+# Test values for local Kubernetes testing
+# Usage: helm install socket-firewall . -f ci/test-values.yaml --set socket.apiToken=YOUR_TOKEN
+
+replicaCount: 1
+
+registries:
+  npm:
+    enabled: true
+    domains:
+      - npm.firewall.local
+
+tls:
+  generateSelfSigned: true
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 256Mi

@@ -1,0 +1,60 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "socket-firewall.fullname" . }}-config
+  labels:
+    {{- include "socket-firewall.labels" . | nindent 4 }}
+data:
+  socket.yml: |
+    # Proxy configuration
+    proxy:
+      buffer_size: {{ .Values.proxy.bufferSize }}
+      buffers_count: {{ .Values.proxy.buffersCount }}
+      buffers_size: {{ .Values.proxy.buffersSize }}
+      connect_timeout: {{ .Values.proxy.connectTimeout }}
+      send_timeout: {{ .Values.proxy.sendTimeout }}
+      read_timeout: {{ .Values.proxy.readTimeout }}
+
+    registries:
+      {{- if .Values.registries.npm.enabled }}
+      npm:
+        domains:
+          {{- range .Values.registries.npm.domains }}
+          - {{ . }}
+          {{- end }}
+      {{- end }}
+      {{- if .Values.registries.pypi.enabled }}
+      pypi:
+        domains:
+          {{- range .Values.registries.pypi.domains }}
+          - {{ . }}
+          {{- end }}
+      {{- end }}
+      {{- if .Values.registries.maven.enabled }}
+      maven:
+        domains:
+          {{- range .Values.registries.maven.domains }}
+          - {{ . }}
+          {{- end }}
+      {{- end }}
+      {{- if .Values.registries.rubygems.enabled }}
+      rubygems:
+        domains:
+          {{- range .Values.registries.rubygems.domains }}
+          - {{ . }}
+          {{- end }}
+      {{- end }}
+      {{- if .Values.registries.cargo.enabled }}
+      cargo:
+        domains:
+          {{- range .Values.registries.cargo.domains }}
+          - {{ . }}
+          {{- end }}
+      {{- end }}
+      {{- if .Values.registries.openvsx.enabled }}
+      openvsx:
+        domains:
+          {{- range .Values.registries.openvsx.domains }}
+          - {{ . }}
+          {{- end }}
+      {{- end }}

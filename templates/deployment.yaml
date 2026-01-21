@@ -1,0 +1,175 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "socket-firewall.fullname" . }}
+  labels:
+    {{- include "socket-firewall.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "socket-firewall.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "socket-firewall.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "socket-firewall.serviceAccountName" . }}
+      {{- if .Values.tls.generateSelfSigned }}
+      initContainers:
+        - name: generate-certs
+          image: alpine/openssl:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              # Generate self-signed certificate for all configured domains
+              DOMAINS=""
+              {{- if .Values.registries.npm.enabled }}
+              {{- range .Values.registries.npm.domains }}
+              DOMAINS="$DOMAINS,DNS:{{ . }}"
+              {{- end }}
+              {{- end }}
+              {{- if .Values.registries.pypi.enabled }}
+              {{- range .Values.registries.pypi.domains }}
+              DOMAINS="$DOMAINS,DNS:{{ . }}"
+              {{- end }}
+              {{- end }}
+              {{- if .Values.registries.maven.enabled }}
+              {{- range .Values.registries.maven.domains }}
+              DOMAINS="$DOMAINS,DNS:{{ . }}"
+              {{- end }}
+              {{- end }}
+              {{- if .Values.registries.rubygems.enabled }}
+              {{- range .Values.registries.rubygems.domains }}
+              DOMAINS="$DOMAINS,DNS:{{ . }}"
+              {{- end }}
+              {{- end }}
+              {{- if .Values.registries.cargo.enabled }}
+              {{- range .Values.registries.cargo.domains }}
+              DOMAINS="$DOMAINS,DNS:{{ . }}"
+              {{- end }}
+              {{- end }}
+              {{- if .Values.registries.openvsx.enabled }}
+              {{- range .Values.registries.openvsx.domains }}
+              DOMAINS="$DOMAINS,DNS:{{ . }}"
+              {{- end }}
+              {{- end }}
+              # Remove leading comma
+              DOMAINS="${DOMAINS#,}"
+
+              # Generate CA key and certificate
+              openssl genrsa -out /certs/ca.key 2048
+              openssl req -x509 -new -nodes -key /certs/ca.key -sha256 -days 365 \
+                -out /certs/ca.crt -subj "/CN=Socket Firewall CA"
+
+              # Generate server key
+              openssl genrsa -out /certs/tls.key 2048
+
+              # Generate CSR
+              openssl req -new -key /certs/tls.key -out /certs/server.csr \
+                -subj "/CN=socket-firewall"
+
+              # Create extensions file
+              cat > /certs/ext.cnf << EOF
+              authorityKeyIdentifier=keyid,issuer
+              basicConstraints=CA:FALSE
+              keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
+              subjectAltName = $DOMAINS
+              EOF
+
+              # Sign server certificate with CA
+              openssl x509 -req -in /certs/server.csr -CA /certs/ca.crt -CAkey /certs/ca.key \
+                -CAcreateserial -out /certs/tls.crt -days 365 -sha256 -extfile /certs/ext.cnf
+
+              # Create fullchain (server + CA)
+              cat /certs/tls.crt /certs/ca.crt > /certs/fullchain.pem
+              cp /certs/tls.key /certs/privkey.pem
+
+              echo "Certificates generated for: $DOMAINS"
+          volumeMounts:
+            - name: tls-certs
+              mountPath: /certs
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+            - name: https
+              containerPort: 443
+              protocol: TCP
+          env:
+            - name: SOCKET_SECURITY_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "socket-firewall.secretName" . }}
+                  key: {{ .Values.socket.existingSecretKey }}
+            - name: HTTP_PORT
+              value: "80"
+            - name: HTTPS_PORT
+              value: "443"
+            - name: CONFIG_FILE
+              value: /app/socket.yml
+          volumeMounts:
+            - name: config
+              mountPath: /app/socket.yml
+              subPath: socket.yml
+              readOnly: true
+            - name: tls-certs
+              mountPath: /etc/nginx/ssl
+              readOnly: true
+          {{- if .Values.healthCheck.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.healthCheck.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.healthCheck.initialDelaySeconds }}
+            periodSeconds: {{ .Values.healthCheck.periodSeconds }}
+            timeoutSeconds: {{ .Values.healthCheck.timeoutSeconds }}
+            failureThreshold: {{ .Values.healthCheck.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.healthCheck.path }}
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "socket-firewall.fullname" . }}-config
+        - name: tls-certs
+          {{- if .Values.tls.generateSelfSigned }}
+          emptyDir: {}
+          {{- else if .Values.tls.existingSecret }}
+          secret:
+            secretName: {{ .Values.tls.existingSecret }}
+          {{- else }}
+          secret:
+            secretName: {{ include "socket-firewall.tlsSecretName" . }}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,131 @@
+name: Test Helm Chart
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  HELM_VERSION: v3.14.0
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Lint Helm Chart
+        run: helm lint .
+
+      - name: Template Validation
+        run: |
+          helm template test . \
+            --set socket.apiToken=test-token \
+            --debug
+
+  test-blocking:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: socket-test
+
+      - name: Install Helm Chart
+        run: |
+          helm install socket-firewall . \
+            --set socket.apiToken=${{ secrets.SOCKET_SECURITY_API_TOKEN }} \
+            --set registries.npm.domains[0]=npm.firewall.local \
+            --wait --timeout 120s
+
+      - name: Wait for pods to be ready
+        run: |
+          kubectl wait --for=condition=ready pod \
+            -l app.kubernetes.io/name=socket-firewall \
+            --timeout=120s
+
+      - name: Port forward to firewall service
+        run: |
+          kubectl port-forward svc/socket-firewall 8443:443 &
+          sleep 5
+
+      - name: Get CA certificate from pod
+        run: |
+          POD=$(kubectl get pod -l app.kubernetes.io/name=socket-firewall -o jsonpath='{.items[0].metadata.name}')
+          kubectl exec $POD -- cat /etc/nginx/ssl/ca.crt > /tmp/ca.crt
+          # Trust the CA for this test
+          sudo cp /tmp/ca.crt /usr/local/share/ca-certificates/socket-firewall.crt
+          sudo update-ca-certificates
+
+      - name: Test health endpoint
+        run: |
+          curl -v --cacert /tmp/ca.crt \
+            --resolve npm.firewall.local:8443:127.0.0.1 \
+            https://npm.firewall.local:8443/health
+
+      - name: Test form-data@2.3.3 is blocked
+        run: |
+          # This package should be blocked due to prototype pollution vulnerability
+          mkdir -p /tmp/test-npm
+          cd /tmp/test-npm
+          npm init -y
+
+          # Configure npm to use the firewall proxy
+          cat > .npmrc << EOF
+          registry=https://npm.firewall.local:8443/
+          strict-ssl=false
+          EOF
+
+          # Add hosts entry
+          echo "127.0.0.1 npm.firewall.local" | sudo tee -a /etc/hosts
+
+          # Try to install form-data@2.3.3 - should fail with 403
+          if npm install form-data@2.3.3 2>&1 | tee /tmp/npm-output.txt; then
+            echo "ERROR: form-data@2.3.3 was NOT blocked!"
+            exit 1
+          else
+            # Check if it was blocked by Socket (403) vs other error
+            if grep -q "403\|blocked\|Blocked" /tmp/npm-output.txt; then
+              echo "SUCCESS: form-data@2.3.3 was blocked by Socket Firewall"
+            else
+              echo "ERROR: Package failed to install but not due to blocking"
+              cat /tmp/npm-output.txt
+              exit 1
+            fi
+          fi
+
+      - name: Test safe package installs
+        run: |
+          cd /tmp/test-npm
+          # A safe package should install successfully
+          if npm install lodash@4.17.21 2>&1 | tee /tmp/npm-lodash.txt; then
+            echo "SUCCESS: lodash@4.17.21 installed successfully"
+          else
+            echo "ERROR: Safe package failed to install"
+            cat /tmp/npm-lodash.txt
+            exit 1
+          fi
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          echo "=== Pod logs ==="
+          kubectl logs -l app.kubernetes.io/name=socket-firewall --tail=100
+          echo "=== Pod describe ==="
+          kubectl describe pod -l app.kubernetes.io/name=socket-firewall
+          echo "=== Events ==="
+          kubectl get events --sort-by=.lastTimestamp
