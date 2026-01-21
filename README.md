@@ -71,6 +71,9 @@ registries:
 | `service.type` | Service type | `ClusterIP` |
 | `resources.limits.cpu` | CPU limit | `1` |
 | `resources.limits.memory` | Memory limit | `768Mi` |
+| `imagePullSecrets` | Image pull secrets for private registries | `[]` |
+| `podSecurityContext` | Pod security context | `{}` |
+| `securityContext` | Container security context | `{}` |
 
 See [values.yaml](values.yaml) for all options.
 
