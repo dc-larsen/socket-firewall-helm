@@ -1,0 +1,32 @@
+Socket Firewall deployed successfully.
+
+{{- if .Values.tls.generateSelfSigned }}
+Self-signed certificates were generated. To extract the CA certificate:
+
+  kubectl exec -n {{ .Release.Namespace }} \
+    $(kubectl get pod -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "socket-firewall.name" . }} -o jsonpath='{.items[0].metadata.name}') \
+    -- cat /etc/nginx/ssl/ca.crt > socket-ca.crt
+
+{{- end }}
+
+To access the firewall:
+
+  kubectl port-forward svc/{{ include "socket-firewall.fullname" . }} 8443:443 -n {{ .Release.Namespace }}
+
+Configure npm to use the firewall:
+
+  npm config set registry https://{{ (index .Values.registries.npm.domains 0) }}:8443/
+  {{- if .Values.tls.generateSelfSigned }}
+  npm config set strict-ssl false  # Or trust the CA cert above
+  {{- end }}
+
+Configured registries:
+{{- if .Values.registries.npm.enabled }}
+  - npm: {{ join ", " .Values.registries.npm.domains }}
+{{- end }}
+{{- if .Values.registries.pypi.enabled }}
+  - pypi: {{ join ", " .Values.registries.pypi.domains }}
+{{- end }}
+{{- if .Values.registries.maven.enabled }}
+  - maven: {{ join ", " .Values.registries.maven.domains }}
+{{- end }}

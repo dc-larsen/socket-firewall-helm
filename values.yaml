@@ -6,6 +6,10 @@ image:
   tag: latest
   pullPolicy: IfNotPresent
 
+# Image pull secrets for private registries
+imagePullSecrets: []
+# - name: my-registry-secret
+
 # Number of replicas
 replicaCount: 1
 
@@ -91,6 +95,16 @@ healthCheck:
 
 # Pod annotations
 podAnnotations: {}
+
+# Pod security context
+podSecurityContext: {}
+  # fsGroup: 101
+
+# Container security context
+securityContext: {}
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 101
 
 # Node selector
 nodeSelector: {}
