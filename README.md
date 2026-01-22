@@ -152,6 +152,12 @@ helm install socket-firewall . \
   --set socket.existingSecret=socket-api-token
 ```
 
+**Note:** If you update the API token, restart the deployment to pick up the new value:
+
+```bash
+kubectl rollout restart deployment/socket-firewall
+```
+
 ## Uninstall
 
 ```bash
